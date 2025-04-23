@@ -32,13 +32,11 @@ skin_tone_dataset = "models/skin_tone/skin_tone_dataset.csv"
 
 
 def get_model():
-    global model1, model2, skinmate_model
+    global model1, model2
     model1 = load_model("./models/skin_model")
     print("Model 1 loaded")
     model2 = load_model("./models/acne_model")
     print("Model 2 loaded!")
-    skinmate_model = tf.saved_model.load("./models/other_concerns")
-    print("SkinMate model loaded!")
 
 
 def load_image(img_path):
@@ -72,43 +70,6 @@ def prediction_acne(img_path):
     else:
         pred_class2 = class_names2[int(tf.round(pred2[0]))]
     return pred_class2
-
-
-def prediction_skinmate(img_path):
-    img = image.load_img(img_path, target_size=(150, 150))
-    img_array = image.img_to_array(img)
-    img_array /= 255.0
-    img_array = np.expand_dims(img_array, axis=0)
-
-    # convert to tf tensor
-    img_tensor = tf.convert_to_tensor(img_array, dtype=tf.float32)
-
-    # get prediction function from saved model
-    infer = skinmate_model.signatures["serving_default"]
-
-    # run inference
-    preds = infer(tf.constant(img_tensor))  # returns a dict
-
-    # extract predictions (first value from dict)
-    preds_values = list(preds.values())[0].numpy()
-
-    preds_normalized = preds_values * 1000
-    preds_rounded = np.round(preds_normalized)
-    preds_in_level = preds_rounded / 100
-    preds_in_level_rounded = np.ceil(preds_in_level).flatten()
-
-    results = {
-        "Acnes": int(preds_in_level_rounded[0]),
-        "Blackheads": int(preds_in_level_rounded[1]),
-        "Darkspots": int(preds_in_level_rounded[2]),
-        "Wrinkles": int(preds_in_level_rounded[3]),
-    }
-
-    categories = np.array(["Acnes", "Blackheads", "Darkspots", "Wrinkles"])
-    max_index = np.argmax(preds_in_level_rounded)
-    results["Most_significant_problem"] = str(categories[max_index])
-
-    return results
 
 
 get_model()
@@ -171,18 +132,11 @@ class SkinMetrics(Resource):
         skin_type = prediction_skin(file_path).split("_")[0]
         acne_type = prediction_acne(file_path)
         tone = identify_skin_tone(file_path, dataset=skin_tone_dataset)
-        result = prediction_skinmate(file_path)
         print(skin_type)
         print(acne_type)
         print(tone)
-        print(result)
 
-        return {
-            "type": skin_type,
-            "tone": str(tone),
-            "acne": acne_type,
-            "other_concerns": result,
-        }, 200
+        return {"type": skin_type, "tone": str(tone), "acne": acne_type}, 200
 
 
 api.add_resource(SkinMetrics, "/upload")
@@ -268,27 +222,15 @@ def predict():
     if request.method == "POST":
         file = request.files["file"]
         filename = file.filename
-        file_path = os.path.join("./static", filename)
+        file_path = os.path.join(
+            "./static", filename
+        )  # slashes should be handeled properly
         file.save(file_path)
-
         skin_type = prediction_skin(file_path)
         acne_type = prediction_acne(file_path)
-        skinmate_metrics = prediction_skinmate(file_path)
-
         print(skin_type)
         print(acne_type)
-        print(skinmate_metrics)
-
-        return (
-            jsonify(
-                {
-                    "skin_type": skin_type,
-                    "acne_type": acne_type,
-                    "skinmate_metrics": skinmate_metrics,
-                }
-            ),
-            200,
-        )
+        return skin_type, acne_type
 
 
 if __name__ == "__main__":
